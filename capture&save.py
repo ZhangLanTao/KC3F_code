@@ -4,8 +4,6 @@ import numpy as np
 import cv2
 import math
 
-
-
 def save_img_from_camera(Camera,filename):   #return 去畸后的一张图片
     ret, frame = Camera.read() # 一帧一帧的捕获视频,ret返回的是否读取成功，frame返回的是帧
     frame = np.rot90(frame)

@@ -19,6 +19,7 @@ def run_car(sm, st):
 
 def get_sign(img):
     HSV = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    cv2.imshow("test",HSV)
     Lower = np.array([88, 69, 205])
     Upper = np.array([119, 226, 255])
     mask = cv2.inRange(HSV, Lower, Upper)

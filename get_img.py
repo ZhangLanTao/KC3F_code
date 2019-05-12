@@ -16,7 +16,7 @@ def get_bird_img(src,CameraParameter):
     return bird_s_eye
 
 def camera_parameters_init():       #return 摄像头对象 摄像头参数    return Camera , CameraMtx , DistCoeffs ,TransferM
-    Camera = cv2.VideoCapture(1)   #cap仅仅是摄像头的一个对象
+    Camera = cv2.VideoCapture(0)   #cap仅仅是摄像头的一个对象
     Camera.set(3, 1280)             #设置分辨率
     Camera.set(4, 720)
 
