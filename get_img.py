@@ -5,15 +5,13 @@ import cv2
 import math
 
 class CameraParameters:
-    def __init__(self,CameraMtx , DistCoeffs ,TransferM):
+    def __init__(self,CameraMtx , DistCoeffs ,TransferM , newcameramtx):
         self.CameraMtx = CameraMtx
         self.DistCoeffs = DistCoeffs
         self.TransferM = TransferM
+        self.newcameramtx = newcameramtx
 
-def get_bird_img(src,CameraParameter):
 
-    bird_s_eye = cv2.warpPerspective(src, CameraParameter.TransferM, (400, 260), cv2.INTER_LINEAR)
-    return bird_s_eye
 
 def camera_parameters_init():       #return 摄像头对象 摄像头参数    return Camera , CameraMtx , DistCoeffs ,TransferM
     Camera = cv2.VideoCapture(0)   #cap仅仅是摄像头的一个对象
@@ -24,17 +22,21 @@ def camera_parameters_init():       #return 摄像头对象 摄像头参数    r
     CameraMtx = np.array([[920.341540386842, 0.928045375071153, 638.842904534224], [0, 919.186342935789, 360.592128174277], [0, 0, 1]])
     DistCoeffs = np.array([[-0.399507111526893], [0.166350759592159], [0.000800934404473862], [0.000814484527629980], [0]])
 
+    h,w = 720, 1280
+    newcameramtx, roi = cv2.getOptimalNewCameraMatrix(CameraMtx, DistCoeffs, (w, h), 0, (0, 0))
+
     #透视变换原图四点和期望的四点位置
     #计算透视变换矩阵
-    src_points = np.array([[73., 713.], [1195., 697.], [277., 501.], [992., 487.]], dtype="float32")
-    dst_points = np.array([[110., 260.], [290., 260.], [0., 0.], [400., 0.]], dtype="float32")
+    src_points = np.array([[124., 571.], [1200., 544.], [87., 720.], [1227., 689.]], dtype="float32")
+    dst_points = np.array([[0., 0.], [500., 0.], [125., 185.], [375., 185.]], dtype="float32")
     TransferM = cv2.getPerspectiveTransform(src_points, dst_points)
-    CameraParameter = CameraParameters(CameraMtx , DistCoeffs ,TransferM)
+    CameraParameter = CameraParameters(CameraMtx, DistCoeffs,TransferM, newcameramtx)
     return Camera , CameraParameter
 
-def get_img_from_camera(Camera,CameraParameter):
+def get_img_from_camera(Camera, CameraParameter, need_undistort):
     ret, frame = Camera.read()  # 一帧一帧的捕获视频,ret返回的是否读取成功，frame返回的是帧
-    frame = cv2.undistort(frame, CameraParameter.CameraMtx, CameraParameter.DistCoeffs)
+    if need_undistort:
+        frame = cv2.undistort(frame, CameraParameter.CameraMtx, CameraParameter.DistCoeffs, None, CameraParameter.newcameramtx)
     frame = np.rot90(frame)
     frame = np.rot90(frame)
     return frame
@@ -42,6 +44,8 @@ def get_img_from_camera(Camera,CameraParameter):
 def get_img_from_file(file_name,CameraParameter):
     frame = cv2.imread(file_name, cv2.IMREAD_UNCHANGED)
     frame = cv2.undistort(frame, CameraParameter.CameraMtx, CameraParameter.DistCoeffs)
+    frame = np.rot90(frame)
+    frame = np.rot90(frame)
     return frame
 
 def get_sign(frame):
@@ -68,6 +72,72 @@ def get_sign(frame):
                 cv2.ellipse(frame, ell, (0, 0, 255), 2)
     cv2.imshow("frame", frame)
 
+def get_bird_img(src,CameraParameter):
+    bird_s_eye = cv2.warpPerspective(src, CameraParameter.TransferM, (500, 185), cv2.INTER_LINEAR)
+    cv2.line(bird_s_eye, (-50,80),(100,250),(255,255,255),100)
+    cv2.line(bird_s_eye, (550,65),(400,250),(255,255,255),100)
+    return bird_s_eye
+
+#提取路径的骨架
+#可以修改kernel的样式
+#提取二值化图像的黑色的骨架
+def skeletonize(img):
+    img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    ret, img = cv2.threshold(img, 120, 255, cv2.THRESH_BINARY)
+    img = cv2.bitwise_not(img)
+    skel = img.copy()
+
+    skel[:,:] = 0
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
+
+    while True:
+        eroded = cv2.morphologyEx(img, cv2.MORPH_ERODE, kernel)
+        temp = cv2.morphologyEx(eroded, cv2.MORPH_DILATE, kernel)
+        temp  = cv2.subtract(img, temp)
+        skel = cv2.bitwise_or(skel, temp)
+        img[:,:] = eroded[:,:]
+        if cv2.countNonZero(img) == 0:
+            break
+    skel = cv2.bitwise_not(skel)
+    skel = cv2.GaussianBlur(skel,(7,7),0,0)
+    ret, skel = cv2.threshold(skel, 240, 255, cv2.THRESH_BINARY)
+    return skel
+
+
+
+# 查表法细化
+def to_thin(img):
+    array = [0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, \
+             1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, \
+             0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, \
+             1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, \
+             1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \
+             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \
+             1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1, 0, 1, \
+             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \
+             0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, \
+             1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, \
+             0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, \
+             1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, \
+             1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \
+             1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, \
+             1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1, 0, 0, \
+             1, 1, 0, 0, 1, 1, 1, 0, 1, 1, 0, 0, 1, 0, 0, 0]
+    img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    ret, img = cv2.threshold(img, 120, 255, cv2.THRESH_BINARY)
+    cv2.imshow("lmg", img)
+    i_thin = img
+    for h in range(height):
+        for w in range(width):
+            if img[h, w] == 0:
+                a = [1] * 9
+                for i in range(3):
+                    for j in range(3):
+                        if -1 < h-1+i < height and -1 < w-1+j < width and i_thin[h-1+i, w-1+j] == 0:
+                            a[j*3+i] = 0
+                sum = a[0]*1 + a[1]*2 + a[2]*4 + a[3]*8 + a[5]*16 + a[6]*32 + a[7]*64 + a[8]*128
+                i_thin[h, w] = array[sum] * 255
+    return i_thin
 
 if __name__ == "__main__":
     print("no functions to run.")

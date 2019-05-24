@@ -1,8 +1,9 @@
 # -*- coding:utf-8 -*-
 import numpy as np
-import cv2
+from cv2 import *
 import math
 from get_img import*
+import time
 
 def rotate(image, angle, center=None, scale=1.0):
     (h, w) = image.shape[:2]
@@ -83,7 +84,7 @@ def cmpHash(hash1, hash2):
     n = 0
     # hash长度不同则返回-1代表传参出错
     if len(hash1) != len(hash2):
-        return -1
+        return 0
     # 遍历判断
     result = []
     for i in range(len(hash1)):
@@ -91,16 +92,21 @@ def cmpHash(hash1, hash2):
         result.append(hash1[i] - hash2[i])
     return np.linalg.norm(result)
 def get_sign(frame):
+    #inrange 过滤蓝色
     HSV = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    Lower = np.array([90, 100, 170])
-    Upper = np.array([120, 255, 255])
-    '''此效果较好，勿删
-    Lower = np.array([90, 100, 170])
-    Upper = np.array([120, 255, 255])'''
+
+    cv2.imshow("HSV", HSV)
+#此参数难调，尤其是逆光的时候容易崩
+    Lower = np.array([110, 80, 40])
+    Upper = np.array([130, 255, 155])
+
     bin = cv2.inRange(HSV, Lower, Upper)
     kernel = np.ones((5, 5), np.uint8)
     bin = cv2.dilate(bin, kernel)
+
     cv2.imshow("bin", bin)
+
+    #检测边界，拟合椭圆，抠图
     contours, hierarchy = cv2.findContours(bin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)  # contours为轮廓集，可以计算轮廓的长度、面积等
     for cnt in contours:
         if len(cnt) > 50:
@@ -113,9 +119,11 @@ def get_sign(frame):
             S2 = math.pi * a * b
             eccentricity = math.sqrt(a * a - b * b) / a
 
+            print("椭圆信息：", S2, eccentricity, S1/S2)
+            cv2.ellipse(frame, ell, (0, 255,), -1)
             #抠图，拉伸
             mask = np.zeros(bin.shape[:2], np.uint8)                  #准备扣标志图的mask
-            if (S1 / S2) > 0.85 and S2 > 10000 and eccentricity < 0.5:  # 面积比例，反映拟合情况
+            if (S1 / S2) > 0.85 and S2 > 3000 and S2 < 20000 and eccentricity < 0.5:  # 面积比例，反映拟合情况
                 cv2.ellipse(mask, ell, (255, 255, 255), -1)
                 sign = cv2.bitwise_and(bin, bin, mask=mask)         #标志ROI
                 x, y, w, h = cv2.boundingRect(cnt)                      #裁标志
@@ -129,63 +137,101 @@ def get_sign(frame):
                 h, w = sign.shape[0:2]
 
                 sign = sign[5:h-5, (w - h) // 2 + 5:(w + h) // 2 -5]            #变成正方形
+                cv2.imshow("sign",sign)
+
                 return sign
     return None
-'''
-right_hash = '1100010010000110101000110001101110010110100101111001110001000100'
-straight_hash = '0110100010101100100011010010100000001100000010011010100001001000'
-left_hash = '1110000010100000101001010001010110010100001001011000010001000100'
-'''
-left_hash = [0,0,0,0,0,0.407158837,0.995525727,0.051454139,0,0.006711409,0.313199105,0,0,0,0.006711409,1,0.163310962,
-             0.991051454,0,0.004474273,0.006711409,0,0,0.208053691,0.25950783,0.850111857,0.017897092,0.601789709,
-             0.991051454,0,0.002237136,0.239373602,0,0.080536913,0.315436242,0,1,0.002237136,0.029082774,
-             0.248322148,0,0,0,0,0.977628635,0.015659955,0.031319911,0.326621924,0,0,0,0.071588367,0.836689038,
-             0.002237136,0.129753915,0.953020134,0,0,0,0,0.002237136,0.362416107,0.988814318,0.080536913]
+
+#KNN临近算法得到的三个标志的“中心”
+left_hash = [0,0,0.014705882,0.073529412,0.191176471,0.411764706,0.808823529,0.338235294,0,0,0.014705882,0.058823529,0,
+             0.044117647,0.176470588,0.970588235,0,0.102941176,0.926470588,0.147058824,0.014705882,0,0.014705882,
+             0.397058824,0,0.235294118,0.970588235,0.014705882,0.294117647,0.602941176,0,0.147058824,0,0.014705882,
+             0.058823529,0.058823529,0.132352941,0.882352941,0,0.102941176,0.014705882,0,0.029411765,0.014705882,
+             0.117647059,0.970588235,0,0.382352941,0,0.014705882,0,0,0.014705882,0.014705882,0.176470588,0.955882353,
+             0,0,0,0.058823529,0.088235294,0.441176471,0.867647059,0.411764706]
+
 straight_hash = [0,0,0,0,0,0.838120104,0.736292428,0,0,0,0.18537859,0.916449086,0,0,0.01305483,1,0,0.015665796,
                  0.997389034,0,0,0,0.036553525,0.548302872,0,0.002610966,0.002610966,1,0,0.005221932,0.033942559,
                  0.266318538,0,0,0.002610966,1,0,0.002610966,0.101827676,0.219321149,0,0,0.002610966,1,0,0.020887728,
                  0.146214099,0.459530026,0,0,0.070496084,0.924281984,0.018276762,0.060052219,0.255874674,0.830287206,
                  0,0,0,0.015665796,0.078328982,0.772845953,0.650130548,0]
-right_hash = [0,0,0,0,0.006012024,0.811623246,0.829659319,0,0,0,0,0,0.226452906,0.014028056,0.018036072,0.995991984,0,
-              0,0.008016032,0.026052104,0.274549098,0.873747495,0,0.438877756,0,0,1,0,0.488977956,0.883767535,0,
-              0.036072144,0,0,1,0,0.206412826,0.006012024,0.056112224,0.078156313,0,0,0.995991984,0.002004008,0,
-              0.006012024,0.054108216,0.440881764,0,0,0.785571142,0.178356713,0,0.002004008,0.094188377,0.991983968,
-              0,0,0,0,0,0.841683367,0.80761523,0.002004008]
+right_hash = [0,0,0.013888889,0.138888889,0.180555556,0.458333333,0.819444444,0.388888889,0,0,0,0.055555556,0.027777778,
+              0,0.208333333,0.930555556,0,0.083333333,0.361111111,0.652777778,0.791666667,0,0,0.458333333,0.027777778,
+              0.916666667,0.277777778,0.486111111,0.694444444,0,0.027777778,0.180555556,0.027777778,0.972222222,
+              0.013888889,0.055555556,0.055555556,0,0,0.111111111,0.041666667,0.972222222,0.013888889,0,0,0.013888889,
+              0.013888889,0.402777778,0,0.069444444,0,0,0.027777778,0,0.125,0.958333333,0,0,0,0.055555556,0.138888889,
+              0.416666667,0.875,0.319444444]
+
 def recognize_sign(sign):
     if sign is not None:
+        cv2.imshow("sign", sign)
         sign_hash = dHash(sign)
         list = []       #顺序：左转 直走 右转
         list.append(cmpHash(left_hash, sign_hash))
         list.append(cmpHash(straight_hash, sign_hash))
         list.append(cmpHash(right_hash, sign_hash))
-
+        print (list)
         max_index = list.index(min(list))
         print ("max match",max_index)
+        return max_index
     else:
         print('no sign')
+        return -1
+
+def match_test(filedir):
+    # 以下代码检查一个文件夹里的所有图片的匹配情况
+    filelist = cv2.os.listdir(filedir)  # 列出文件夹下所有的目录与文件
+    for i in range(0, len(filelist)):
+        path = cv2.os.path.join(filedir, filelist[i])
+        if cv2.os.path.isfile(path):
+            frame = get_img_from_file(path, CameraParameter)
+            sign = get_sign(frame)
+            rec_result = recognize_sign(sign)
+            cv2.imshow("frame", frame)
+            if rec_result == -1:
+                c = cv2.waitKey(20)
+                while (c != 99):
+                    c = cv2.waitKey(20)
+            cv2.waitKey(20)
 
 if __name__ == "__main__":
     Camera, CameraParameter = camera_parameters_init()
+    #filedir = "./realimg/polarizer_bright/right"
+    #match_test(filedir)
+    #frame = get_img_from_file("./realimg/polarizer_bright/right/WIN_20190519_15_28_44_Pro (2).jpg", CameraParameter)
     while 1:
-        #frame = get_img_from_file("2.jpg", CameraParameter)
-        frame = get_img_from_camera(Camera, CameraParameter)
-        sign = get_sign(frame)
-        #cv2.imshow("sign", sign)
-        #recognize_sign(sign)
-        if sign is not None:
-            recognize_sign(sign)
-            cv2.imshow("sign",sign)
-        else:
-            print("no sign")
-        cv2.imshow("frame", frame)
+        time0 = time.process_time()
+        frame = get_img_from_camera(Camera, CameraParameter, False)     #False：巡线时不去畸，否则很慢
+        bird = get_bird_img(frame, CameraParameter)
+        time1 = time.process_time()
+        dt = time1-time0
+        if dt<0.001:
+            dt = 0.001
+        freq = 1/dt
+        print("frequency:",freq)
+        imshow("bird", bird)
+        imshow("frame", frame)
 
-        c = cv2.waitKey(1)
-        if c == 99:
-            break
+        waitKey(20)
+'''        
+    frame = get_img_from_file("./realimg/polarizer_bright/right/WIN_20190519_15_28_44_Pro (2).jpg", CameraParameter)
+    #frame = get_img_from_camera(Camera, CameraParameter)
+    sign = get_sign(frame)
+    recognize_sign(sign)
+    cv2.imshow("frame", frame)
+'''
         #bird_s_eye = get_bird_img(frame, CameraParameter)
-        #cv2.imshow("bird", bird_s_eye)
+        #road = skeletonize(bird_s_eye)
+        #cv2.imshow("road", road)
 
-        #find_road(bird_s_eye)
+        #kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 9))
+        #road_x = cv2.morphologyEx(road, cv2.MORPH_DILATE, kernel)
+        #cv2.imshow("road_x",road_x)
+
+        #查表法细化
+        #thin = to_thin(bird_s_eye)
+        #cv2.imshow("thin",thin)
+
         #frame = cv2.cvtColor(frame,cv2.COLOR_RGB2GRAY)
         #edges = cv2.Canny(frame, 50, 150, apertureSize=3)
         #cv2.imshow("edge", edges)
@@ -197,4 +243,4 @@ if __name__ == "__main__":
         #    cv2.circle(frame, (i[0], i[1]), 5, (0, 0, 0), 2)
 
         #display_camera(Camera, CameraParameter)
-        #cv2.waitKey(50)
+        #cv2.waitKey(20)
